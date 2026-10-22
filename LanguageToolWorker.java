@@ -15,6 +15,7 @@ import org.languagetool.language.identifier.detector.FastTextDetector;
 public final class LanguageToolWorker {
     private static final Map<String, JLanguageTool> TOOLS = new HashMap<>();
     private static FastTextDetector detector;
+    private static String autoDetectError;
 
     private static JLanguageTool toolFor(String code) {
         return TOOLS.computeIfAbsent(code, key -> {
@@ -26,6 +27,7 @@ public final class LanguageToolWorker {
 
     private static JSONArray check(String text, String code) throws Exception {
         if ("auto".equals(code)) {
+            if (detector == null) throw new IllegalStateException("Auto-detect is unavailable: " + autoDetectError + " Choose explicit languages in the LanguageTool extension settings to keep checking.");
             Map<String, Double> scores = detector.runFasttext(text, Collections.emptyList());
             code = scores.entrySet().stream().max(Map.Entry.comparingByValue()).orElseThrow().getKey();
         }
@@ -47,10 +49,32 @@ public final class LanguageToolWorker {
         return matches;
     }
 
+    private static String shorten(String message) {
+        String text = message == null ? "" : message.trim().replaceAll("\\s+", " ");
+        return text.length() > 200 ? text.substring(0, 200) : text;
+    }
+
+    private static void initDetector(File model, File binary) {
+        if (!model.isFile() || model.length() < 1_000_000) {
+            autoDetectError = "Language model " + model.getName() + " is missing or is a Git LFS pointer (" + model.length() + " bytes). Run 'git lfs pull' in the plugin folder, then restart SillyTavern.";
+            return;
+        }
+        try {
+            detector = new FastTextDetector(model, binary);
+            detector.runFasttext("This is a short test sentence.", Collections.emptyList());
+        } catch (Exception e) {
+            detector = null;
+            String detail = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+            autoDetectError = "fastText language detection failed: " + shorten(detail);
+        }
+    }
+
     public static void main(String[] args) throws Exception {
         if (args.length != 2) throw new IllegalArgumentException("Expected fastText model and binary paths");
-        detector = new FastTextDetector(new File(args[0]), new File(args[1]));
-        System.out.println(new JSONObject().put("ready", true));
+        initDetector(new File(args[0]), new File(args[1]));
+        JSONObject ready = new JSONObject().put("ready", true).put("autoDetect", detector != null);
+        if (autoDetectError != null) ready.put("autoDetectError", autoDetectError);
+        System.out.println(ready);
         System.out.flush();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in))) {
             String line;

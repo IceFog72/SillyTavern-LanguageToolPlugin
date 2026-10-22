@@ -9,9 +9,7 @@
  *   Returns: LanguageTool JSON response (matches, replacements, etc.)
  */
 
-import { execFile } from 'node:child_process';
 import { spawn } from 'node:child_process';
-import { access } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -25,6 +23,8 @@ const WORKER_CLASSPATH = `${LT_JAR}${path.delimiter}${path.join(PLUGIN_DIR, 'lib
 
 let workerProcess;
 let workerReady;
+let workerInfo;
+let workerError;
 let workerRequestId = 0;
 const workerRequests = new Map();
 
@@ -34,12 +34,6 @@ export const info = {
     name:        'LanguageTool',
     description: 'Grammar and spell checking via LanguageTool Java CLI (no HTTP server).',
 };
-
-function checkJavaRuntime() {
-    return new Promise(resolve => {
-        execFile('java', ['-version'], { cwd: PLUGIN_DIR, timeout: 5_000 }, error => resolve(!error));
-    });
-}
 
 function startWorker() {
     if (workerReady) return workerReady;
@@ -59,7 +53,7 @@ function startWorker() {
                 if (!line.trim()) continue;
                 try {
                     const message = JSON.parse(line);
-                    if (message.ready) resolve();
+                    if (message.ready) { workerInfo = message; workerError = undefined; resolve(); }
                     else workerRequests.get(message.id)?.resolve(message);
                     if (message.id) workerRequests.delete(message.id);
                 } catch (error) {
@@ -79,7 +73,10 @@ function startWorker() {
             workerRequests.clear();
             workerProcess = undefined;
             workerReady = undefined;
-            reject(new Error(`LanguageTool worker exited before it was ready (${code ?? signal}).\n${stderrTail.trim()}`));
+            workerInfo = undefined;
+            const startError = new Error(`LanguageTool worker exited before it was ready (${code ?? signal}).\n${stderrTail.trim()}`);
+            workerError = startError.message;
+            reject(startError);
         });
     });
     return workerReady;
@@ -97,12 +94,16 @@ async function checkWithWorker(text, languages) {
 }
 
 async function getPluginStatus() {
-    const [filesAvailable, javaAvailable] = await Promise.all([
-        Promise.all([LT_JAR, FASTTEXT_MODEL, FASTTEXT_BIN].map(file => access(file).then(() => true).catch(() => false)))
-            .then(results => results.every(Boolean)),
-        checkJavaRuntime(),
-    ]);
-    return { filesAvailable, javaAvailable, workerAlive: Boolean(workerProcess && !workerProcess.killed), ok: filesAvailable && javaAvailable && Boolean(workerProcess && !workerProcess.killed) };
+    // Starts (or restarts) the worker if needed, so a crashed worker recovers on the next status poll.
+    const startError = await startWorker().then(() => undefined, error => error);
+    const workerAlive = Boolean(workerProcess && !workerProcess.killed);
+    return {
+        ok: !startError && workerAlive,
+        workerAlive,
+        workerError: startError?.message ?? workerError,
+        autoDetect: workerInfo?.autoDetect === true,
+        autoDetectError: workerInfo?.autoDetectError,
+    };
 }
 
 // ── Plugin init ────────────────────────────────────────────────────────────

@@ -30,7 +30,9 @@ describe('LanguageToolWorker protocol', () => {
     });
 
     it('prints a ready line on start', async () => {
-        assert.deepEqual(await worker.ready, { ready: true });
+        const ready = await worker.ready;
+        assert.equal(ready.ready, true);
+        assert.equal(typeof ready.autoDetect, 'boolean');
     });
 
     it('flags a spelling mistake with replacements', async () => {
