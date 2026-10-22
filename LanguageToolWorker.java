@@ -92,7 +92,7 @@ public final class LanguageToolWorker {
 
     /** LanguageTool marks suggestions as <suggestion>x</suggestion>; clients show plain text. */
     private static String plainMessage(String message) {
-        return message == null ? "" : message.replace("<suggestion>", "“").replace("</suggestion>", "”");
+        return message == null ? "" : message.replace("<suggestion>", "\u201C").replace("</suggestion>", "\u201D");
     }
 
     private static String shorten(String message) {
