@@ -71,4 +71,33 @@ describe('LanguageToolWorker protocol', () => {
         assert.ok(hasTypoMatch(a.matches));
         assert.ok(hasArticleMatch(b.matches));
     });
+
+    describe('suggestion markup', () => {
+        let lower, modal;
+        before(async () => {
+            lower = await worker.request({ text: 'i am here.', languages: ['en-US'] });
+            modal = await worker.request({ text: 'I could of done it.', languages: ['en-US'] });
+        });
+
+        it('replaces suggestion tags in I_LOWERCASE message', () => {
+            const match = lower.matches.find(m => m.rule.id === 'I_LOWERCASE');
+            assert.ok(match);
+            assert.equal(match.message, 'The personal pronoun \u201cI\u201d should be uppercase.');
+        });
+
+        it('replaces suggestion tags in MODAL_OF message', () => {
+            const match = modal.matches.find(m => m.rule.id === 'MODAL_OF');
+            assert.ok(match);
+            assert.ok(match.message.includes('\u201ccould have\u201d'));
+            assert.ok(match.message.includes('\u201ccould\'ve\u201d'));
+            assert.equal(match.message.includes('<'), false);
+        });
+
+        it('leaves no suggestion tags in shortMessage', () => {
+            for (const m of [...lower.matches, ...modal.matches]) {
+                assert.equal(m.shortMessage.includes('<suggestion>'), false);
+                assert.equal(m.message.includes('suggestion>'), false);
+            }
+        });
+    });
 });

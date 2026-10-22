@@ -39,14 +39,19 @@ public final class LanguageToolWorker {
             JSONArray replacements = new JSONArray();
             for (String replacement : match.getSuggestedReplacements()) replacements.put(new JSONObject().put("value", replacement));
             matches.put(new JSONObject()
-                .put("message", match.getMessage())
-                .put("shortMessage", match.getShortMessage())
+                .put("message", plainMessage(match.getMessage()))
+                .put("shortMessage", plainMessage(match.getShortMessage()))
                 .put("offset", match.getFromPos())
                 .put("length", match.getToPos() - match.getFromPos())
                 .put("replacements", replacements)
                 .put("rule", rule));
         }
         return matches;
+    }
+
+    /** LanguageTool marks suggestions as <suggestion>x</suggestion>; clients show plain text. */
+    private static String plainMessage(String message) {
+        return message == null ? "" : message.replace("<suggestion>", "“").replace("</suggestion>", "”");
     }
 
     private static String shorten(String message) {
