@@ -100,4 +100,48 @@ describe('LanguageToolWorker protocol', () => {
             }
         });
     });
+
+    describe('multi-language merge', () => {
+        const misspellings = r => r.matches.filter(m => m.rule.issueType === 'misspelling');
+        const MIXED = 'I like the Haus and the Kater.';
+
+        it('accepts words valid in any selected language (de first)', async () => {
+            const r = await worker.request({ text: 'Ich habe einen Hund und I like it.', languages: ['de-DE', 'en-US'] });
+            assert.equal(misspellings(r).length, 0);
+        });
+
+        it('accepts words valid in any selected language (en first)', async () => {
+            const r = await worker.request({ text: MIXED, languages: ['en-US', 'de-DE'] });
+            assert.equal(misspellings(r).length, 0);
+        });
+
+        it('keeps a word unknown to every language, once', async () => {
+            const r = await worker.request({ text: TYPO, languages: ['en-US', 'de-DE'] });
+            const found = misspellings(r);
+            assert.equal(found.length, 1);
+            assert.equal(found[0].offset, 12);
+            assert.equal(found[0].length, 4);
+        });
+
+        it('drops duplicate grammar matches across similar languages', async () => {
+            const r = await worker.request({ text: ARTICLE, languages: ['en-US', 'en-GB'] });
+            assert.equal(r.matches.length, 1);
+            assert.equal(r.matches[0].offset, 4);
+            assert.equal(r.matches[0].length, 1);
+        });
+
+        it('drops duplicate language codes', async () => {
+            const r = await worker.request({ text: TYPO, languages: ['en-US', 'en-US'] });
+            assert.equal(r.matches.length, 1);
+            assert.equal(r.matches[0].offset, 12);
+            assert.equal(r.matches[0].length, 4);
+        });
+
+        it('single language output is unchanged', async () => {
+            const r = await worker.request({ text: MIXED, languages: ['en-US'] });
+            const found = misspellings(r);
+            assert.deepEqual(found.map(m => m.offset), [11, 24]);
+            assert.deepEqual(found.map(m => m.length), [4, 5]);
+        });
+    });
 });
