@@ -19,6 +19,7 @@ const LT_JAR         = path.join(PLUGIN_DIR, 'languagetool-commandline.jar');
 const FASTTEXT_MODEL = path.join(PLUGIN_DIR, 'bin', 'lid.176.bin');
 const FASTTEXT_BIN   = path.join(PLUGIN_DIR, 'bin', 'fasttext');
 const MAX_TEXT_LENGTH = 100_000;
+const CHECK_TIMEOUT_MS = 30_000;
 const WORKER_CLASSPATH = `${LT_JAR}${path.delimiter}${path.join(PLUGIN_DIR, 'libs', '*')}`;
 
 let workerProcess;
@@ -42,6 +43,7 @@ function startWorker() {
             cwd: PLUGIN_DIR,
             stdio: ['pipe', 'pipe', 'pipe'],
         });
+        workerProcess.stdin.on('error', error => console.error('[LanguageTool] Worker stdin error:', error.message));
         let buffer = '';
         let stderrTail = '';
         workerProcess.stdout.setEncoding('utf8');
@@ -84,11 +86,24 @@ function startWorker() {
 
 async function checkWithWorker(text, languages) {
     await startWorker();
+    const worker = workerProcess;
+    if (!worker) throw new Error('LanguageTool worker is not running.');
     const id = String(++workerRequestId);
+    let timer;
     const response = await new Promise((resolve, reject) => {
         workerRequests.set(id, { resolve, reject });
-        workerProcess.stdin.write(`${JSON.stringify({ id, text, languages })}\n`);
-    });
+        timer = setTimeout(() => {
+            workerRequests.delete(id);
+            // The worker handles one request at a time, so a stuck one blocks all others: replace it.
+            // Reject only after it has exited (the startWorker exit handler runs first and resets state),
+            // so the caller's next request spawns a fresh worker instead of reusing the dying one.
+            const timedOut = () => reject(new Error(`LanguageTool check timed out after ${CHECK_TIMEOUT_MS / 1000} s; restarting the worker.`));
+            if (worker.exitCode !== null || worker.signalCode !== null) timedOut();
+            else worker.once('exit', timedOut);
+            worker.kill('SIGKILL');
+        }, CHECK_TIMEOUT_MS);
+        worker.stdin.write(`${JSON.stringify({ id, text, languages })}\n`);
+    }).finally(() => clearTimeout(timer));
     if (response.error) throw new Error(response.error);
     return response;
 }
