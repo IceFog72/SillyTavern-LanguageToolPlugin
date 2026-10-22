@@ -50,7 +50,7 @@ public final class LanguageToolWorker {
     }
 
     private static String shorten(String message) {
-        String text = message == null ? "" : message.trim().replaceAll("\\s+", " ");
+        String text = message == null ? "" : message.replaceAll("[\\p{Cntrl}\\s]+", " ").trim();
         return text.length() > 200 ? text.substring(0, 200) : text;
     }
 
