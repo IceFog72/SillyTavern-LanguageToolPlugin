@@ -49,6 +49,7 @@ function startWorker() {
             stdio: ['pipe', 'pipe', 'pipe'],
         });
         let buffer = '';
+        let stderrTail = '';
         workerProcess.stdout.setEncoding('utf8');
         workerProcess.stdout.on('data', chunk => {
             buffer += chunk;
@@ -67,7 +68,10 @@ function startWorker() {
             }
         });
         workerProcess.stderr.setEncoding('utf8');
-        workerProcess.stderr.on('data', message => console.debug('[LanguageTool worker]', message.trim()));
+        workerProcess.stderr.on('data', message => {
+            stderrTail = (stderrTail + message).slice(-2000);
+            console.debug('[LanguageTool worker]', message.trim());
+        });
         workerProcess.once('error', reject);
         workerProcess.once('exit', (code, signal) => {
             const error = new Error(`LanguageTool worker exited (${code ?? signal}).`);
@@ -75,6 +79,7 @@ function startWorker() {
             workerRequests.clear();
             workerProcess = undefined;
             workerReady = undefined;
+            reject(new Error(`LanguageTool worker exited before it was ready (${code ?? signal}).\n${stderrTail.trim()}`));
         });
     });
     return workerReady;
@@ -142,9 +147,9 @@ export async function init(router) {
         }
     });
 
-    await startWorker();
+    startWorker().catch(error => console.error('[LanguageTool] Worker failed to start:', error.message));
     process.once('exit', () => workerProcess?.kill());
-    console.log('[LanguageTool] Plugin loaded — persistent Java worker ready');
+    console.log('[LanguageTool] Plugin loaded — Java worker starting in the background');
 }
 
 /** SillyTavern shutdown hook. */
