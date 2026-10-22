@@ -101,6 +101,13 @@ describe('LanguageToolWorker protocol', () => {
         });
     });
 
+    it('spell-checks bare language codes with their default variant', async () => {
+        const english = await worker.request({ text: TYPO, languages: ['en'] });
+        assert.ok(english.matches.some(m => m.offset === 12 && m.length === 4 && m.rule.issueType === 'misspelling'), JSON.stringify(english));
+        const german = await worker.request({ text: 'Ich habe einen Hnud.', languages: ['de'] });
+        assert.ok(german.matches.some(m => m.offset === 15 && m.length === 4 && m.rule.issueType === 'misspelling'), JSON.stringify(german));
+    });
+
     describe('multi-language merge', () => {
         const misspellings = r => r.matches.filter(m => m.rule.issueType === 'misspelling');
         const MIXED = 'I like the Haus and the Kater.';

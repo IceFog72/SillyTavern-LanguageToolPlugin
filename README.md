@@ -17,7 +17,8 @@ Check Java with `java -version` and Git LFS with `git lfs version`.
 
 ## Install
 
-1. Install Git LFS on the machine running SillyTavern.
+1. Install Git LFS on the machine running SillyTavern, then run `git lfs install`
+   once. Without that step Git clones only a small pointer file instead of the model.
 2. From the SillyTavern installation directory, install this server plugin:
 
    ```sh
@@ -40,8 +41,21 @@ Check Java with `java -version` and Git LFS with `git lfs version`.
    [SillyTavern-LanguageTool](https://github.com/IceFog72/SillyTavern-LanguageTool).
    Reload the page and configure the extension in its settings.
 
-If the status endpoint reports an error, check the SillyTavern server log and
-confirm Java and Git LFS are installed and the model file was downloaded.
+On every start the plugin checks its files: the LanguageTool jars, the
+`bin/fasttext` binary, and the size and SHA-256 checksum of `bin/lid.176.bin`.
+Each problem is logged as `[LanguageTool] Install problem: ...` with the command
+that fixes it, and listed in `installProblems` from the status endpoint.
+
+If the model is still a Git LFS pointer, run this in the plugin folder and
+restart SillyTavern:
+
+```sh
+git lfs install --local
+git lfs pull
+```
+
+If the status endpoint reports another error, check the SillyTavern server log
+and confirm Java is installed.
 
 ## License
 

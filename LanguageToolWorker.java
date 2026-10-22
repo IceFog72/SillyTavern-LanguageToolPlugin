@@ -30,7 +30,9 @@ public final class LanguageToolWorker {
         return TOOLS.computeIfAbsent(code, key -> {
             Language language = Languages.getLanguageForShortCode(key);
             if (language == null) throw new IllegalArgumentException("Unknown language: " + key);
-            return new JLanguageTool(language);
+            // Bare codes such as "en" (from fastText or the settings list) have no spell checker; only variants do.
+            Language variant = language.getDefaultLanguageVariant();
+            return new JLanguageTool(variant != null ? variant : language);
         });
     }
 
@@ -100,7 +102,7 @@ public final class LanguageToolWorker {
 
     private static void initDetector(File model, File binary) {
         if (!model.isFile() || model.length() < 1_000_000) {
-            autoDetectError = "Language model " + model.getName() + " is missing or is a Git LFS pointer (" + model.length() + " bytes). Run 'git lfs pull' in the plugin folder, then restart SillyTavern.";
+            autoDetectError = "Language model " + model.getName() + " is missing or is a Git LFS pointer (" + model.length() + " bytes). Run 'git lfs install --local' and then 'git lfs pull' in the plugin folder, then restart SillyTavern.";
             return;
         }
         try {

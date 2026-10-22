@@ -10,6 +10,9 @@
  */
 
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { constants, createReadStream } from 'node:fs';
+import { access, readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -20,6 +23,9 @@ const FASTTEXT_MODEL = path.join(PLUGIN_DIR, 'bin', 'lid.176.bin');
 const FASTTEXT_BIN   = path.join(PLUGIN_DIR, 'bin', 'fasttext');
 const MAX_TEXT_LENGTH = 100_000;
 const CHECK_TIMEOUT_MS = 30_000;
+// From the Git LFS pointer of bin/lid.176.bin (fastText's published lid.176 model).
+const MODEL_SIZE     = 131_266_198;
+const MODEL_SHA256   = '7e69ec5451bc261cc7844e49e4792a85d7f09c06789ec800fc4a44aec362764e';
 const WORKER_CLASSPATH = `${LT_JAR}${path.delimiter}${path.join(PLUGIN_DIR, 'libs', '*')}`;
 
 let workerProcess;
@@ -28,6 +34,7 @@ let workerInfo;
 let workerError;
 let workerRequestId = 0;
 const workerRequests = new Map();
+let installCheck;
 
 // ── Plugin metadata ────────────────────────────────────────────────────────
 export const info = {
@@ -35,6 +42,37 @@ export const info = {
     name:        'LanguageTool',
     description: 'Grammar and spell checking via LanguageTool Java CLI (no HTTP server).',
 };
+
+const exists = (file, mode) => access(file, mode).then(() => true, () => false);
+
+function sha256(file) {
+    return new Promise((resolve, reject) => {
+        const hash = createHash('sha256');
+        createReadStream(file).on('error', reject).on('data', chunk => hash.update(chunk)).on('end', () => resolve(hash.digest('hex')));
+    });
+}
+
+/** Lists missing or partially downloaded files. Each entry says what is wrong and how to fix it. */
+async function checkInstall() {
+    const problems = [];
+    const reinstall = 'Reinstall the plugin.';
+    const lfsFix = `Run 'git lfs install --local' and then 'git lfs pull' in ${PLUGIN_DIR}, then restart SillyTavern.`;
+    if (!(await exists(LT_JAR))) problems.push(`Missing ${path.basename(LT_JAR)}. ${reinstall}`);
+    const libs = await readdir(path.join(PLUGIN_DIR, 'libs')).catch(() => []);
+    if (!libs.some(file => file.endsWith('.jar'))) problems.push(`Missing libs/*.jar. ${reinstall}`);
+    if (!(await exists(FASTTEXT_BIN, constants.X_OK))) {
+        problems.push(`bin/fasttext is missing or not executable, so auto-detect is off. ${reinstall}`);
+    }
+    const model = await stat(FASTTEXT_MODEL).catch(() => null);
+    if (!model) {
+        problems.push(`Missing bin/lid.176.bin, so auto-detect is off. ${lfsFix}`);
+    } else if (model.size < 1024 && (await readFile(FASTTEXT_MODEL, 'utf8')).startsWith('version https://git-lfs')) {
+        problems.push(`bin/lid.176.bin is a Git LFS pointer, not the downloaded model, so auto-detect is off. ${lfsFix}`);
+    } else if (model.size !== MODEL_SIZE || (await sha256(FASTTEXT_MODEL)) !== MODEL_SHA256) {
+        problems.push(`bin/lid.176.bin is incomplete or corrupted (checksum mismatch), so auto-detect is off. Delete it, then: ${lfsFix}`);
+    }
+    return problems;
+}
 
 function startWorker() {
     if (workerReady) return workerReady;
@@ -118,6 +156,7 @@ async function getPluginStatus() {
         workerError: startError?.message ?? workerError,
         autoDetect: workerInfo?.autoDetect === true,
         autoDetectError: workerInfo?.autoDetectError,
+        installProblems: await installCheck,
     };
 }
 
@@ -163,6 +202,8 @@ export async function init(router) {
         }
     });
 
+    installCheck = checkInstall().catch(error => [`Install check failed: ${error.message}`]);
+    installCheck.then(problems => problems.forEach(problem => console.warn('[LanguageTool] Install problem:', problem)));
     startWorker().catch(error => console.error('[LanguageTool] Worker failed to start:', error.message));
     process.once('exit', () => workerProcess?.kill());
     console.log('[LanguageTool] Plugin loaded — Java worker starting in the background');
