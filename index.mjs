@@ -146,3 +146,8 @@ export async function init(router) {
     process.once('exit', () => workerProcess?.kill());
     console.log('[LanguageTool] Plugin loaded — persistent Java worker ready');
 }
+
+/** SillyTavern shutdown hook. */
+export async function exit() {
+    workerProcess?.kill();
+}
